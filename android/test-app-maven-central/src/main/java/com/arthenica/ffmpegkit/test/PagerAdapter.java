@@ -42,7 +42,8 @@ public class PagerAdapter extends FragmentPagerAdapter {
     public Fragment getItem(final int position) {
         switch (position) {
             case 0: {
-                return CommandTabFragment.newInstance();
+//                return CommandTabFragment.newInstance();
+                return SafTabFragment.newInstance();
             }
             case 1: {
                 return VideoTabFragment.newInstance();
@@ -79,7 +80,7 @@ public class PagerAdapter extends FragmentPagerAdapter {
 
     @Override
     public int getCount() {
-        return NUMBER_OF_TABS;
+        return 1;
     }
 
     @Override

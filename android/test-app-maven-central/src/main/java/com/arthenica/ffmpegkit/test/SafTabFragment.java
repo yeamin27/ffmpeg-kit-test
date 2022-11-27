@@ -24,6 +24,7 @@ package com.arthenica.ffmpegkit.test;
 
 import static android.app.Activity.RESULT_OK;
 import static com.arthenica.ffmpegkit.test.MainActivity.TAG;
+import static com.arthenica.ffmpegkit.test.MainActivity.TAG_DEBUG;
 import static com.arthenica.ffmpegkit.test.MainActivity.notNull;
 
 import android.content.Intent;
@@ -61,12 +62,12 @@ import java.io.IOException;
 import java.math.BigDecimal;
 
 public class SafTabFragment extends Fragment {
+    private static final int REQUEST_SAF_FFPROBE = 11;
+    private static final int REQUEST_SAF_FFMPEG = 12;
+    private static final int REQUEST_SELECT_FILE = 13;
     private TextView outputText;
     private Uri inUri;
     private Uri outUri;
-    private static final int REQUEST_SAF_FFPROBE = 11;
-    private static final int REQUEST_SAF_FFMPEG = 12;
-
     private boolean backFromIntent = false;
 
     private AlertDialog progressDialog;
@@ -79,6 +80,10 @@ public class SafTabFragment extends Fragment {
         super(R.layout.fragment_saf_tab);
     }
 
+    static SafTabFragment newInstance() {
+        return new SafTabFragment();
+    }
+
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
@@ -88,11 +93,7 @@ public class SafTabFragment extends Fragment {
 
             @Override
             public void onClick(View v) {
-                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
-                        .setType("video/*")
-                        .putExtra(Intent.EXTRA_TITLE, "video.mp4")
-                        .addCategory(Intent.CATEGORY_OPENABLE);
-                startActivityForResult(intent, REQUEST_SAF_FFMPEG);
+                showHintAndEncode();
             }
         });
 
@@ -101,11 +102,7 @@ public class SafTabFragment extends Fragment {
 
             @Override
             public void onClick(View v) {
-                Intent intent = new Intent(Intent.ACTION_GET_CONTENT)
-                        .setType("*/*")
-                        .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*", "audio/*"})
-                        .addCategory(Intent.CATEGORY_OPENABLE);
-                startActivityForResult(intent, REQUEST_SAF_FFPROBE);
+                selectInputFile(REQUEST_SAF_FFPROBE);
             }
         });
 
@@ -121,10 +118,6 @@ public class SafTabFragment extends Fragment {
         setActive();
     }
 
-    static SafTabFragment newInstance() {
-        return new SafTabFragment();
-    }
-
     private void enableLogCallback() {
         FFmpegKitConfig.enableLogCallback(new LogCallback() {
 
@@ -134,11 +127,40 @@ public class SafTabFragment extends Fragment {
 
                     @Override
                     public void run() {
+                        Log.d(TAG, log.getMessage());
                         appendOutput(log.getMessage());
                     }
                 });
             }
         });
+    }
+
+    private void showHintAndEncode() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(requireContext());
+        builder.setMessage("1. Select an input file\n2. Select the save location.");
+        builder.setPositiveButton("PROCEED", (dialogInterface, i) -> {
+            selectInputFile(REQUEST_SELECT_FILE);
+        });
+        builder.setNegativeButton("CANCEL", null);
+        builder.setCancelable(true);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+    }
+
+    private void selectInputFile(int requestCode) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                .setType("*/*")
+                .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*", "audio/*"})
+                .addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(intent, requestCode);
+    }
+
+    private void selectOutputLocation(String mimeType, String fileName, int requestCode) {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .setType(mimeType)
+                .putExtra(Intent.EXTRA_TITLE, fileName)
+                .addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(intent, requestCode);
     }
 
     private void runFFprobe() {
@@ -213,6 +235,65 @@ public class SafTabFragment extends Fragment {
         }
     }
 
+    private void convertToAudio() {
+        final String videoPath = FFmpegKitConfig.getSafParameterForWrite(requireContext(), outUri);
+        showProgressDialog();
+
+        String ffmpegCommand = "-i " + FFmpegKitConfig.getSafParameterForRead(getContext(), inUri);
+        Log.d(TAG_DEBUG, String.format("FFmpeg process 1 started with arguments: '%s'.", ffmpegCommand));
+
+        FFmpegSession session = FFmpegKit.executeAsync(ffmpegCommand, new FFmpegSessionCompleteCallback() {
+
+            @Override
+            public void apply(final FFmpegSession session) {
+                final SessionState state = session.getState();
+                final ReturnCode returnCode = session.getReturnCode();
+
+                Log.d(TAG_DEBUG, String.format("FFmpeg process 1 exited with state %s and rc %s.%s", state, returnCode, notNull(session.getFailStackTrace(), "\n")));
+
+                String ffmpegCommand = "-i " + FFmpegKitConfig.getSafParameterForRead(getContext(), inUri);
+                Log.d(TAG_DEBUG, String.format("FFmpeg process 2 started with arguments: '%s'.", ffmpegCommand));
+
+                FFmpegSession session1 = FFmpegKit.executeAsync(ffmpegCommand, new FFmpegSessionCompleteCallback() {
+                    @Override
+                    public void apply(final FFmpegSession session) {
+                        final SessionState state = session.getState();
+                        final ReturnCode returnCode = session.getReturnCode();
+
+                        Log.d(TAG_DEBUG, String.format("FFmpeg process 2 exited with state %s and rc %s.%s", state, returnCode, notNull(session.getFailStackTrace(), "\n")));
+
+                        String ffmpegCommand = "-i " + FFmpegKitConfig.getSafParameterForRead(getContext(), inUri);
+                        ffmpegCommand += " -vn ";
+                        ffmpegCommand += " ";
+                        ffmpegCommand += videoPath;
+                        Log.d(TAG_DEBUG, String.format("FFmpeg process 3 started with arguments: '%s'.", ffmpegCommand));
+
+                        FFmpegSession session1 = FFmpegKit.executeAsync(ffmpegCommand, new FFmpegSessionCompleteCallback() {
+                            @Override
+                            public void apply(final FFmpegSession session) {
+                                final SessionState state = session.getState();
+                                final ReturnCode returnCode = session.getReturnCode();
+                                hideProgressDialog();
+
+                                Log.d(TAG_DEBUG, String.format("FFmpeg process 3 exited with state %s and rc %s.%s", state, returnCode, notNull(session.getFailStackTrace(), "\n")));
+                            }
+                        }, new LogCallback() {
+                            @Override
+                            public void apply(com.arthenica.ffmpegkit.Log log) {
+                                Log.d(TAG_DEBUG, "LogCallback: " + log.getMessage());
+                            }
+                        }, new StatisticsCallback() {
+                            @Override
+                            public void apply(Statistics statistics) {
+                                Log.d(TAG_DEBUG, "StatisticsCallback: " + statistics.toString());
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    }
+
     private void setActive() {
         if (backFromIntent) {
             backFromIntent = false;
@@ -256,7 +337,15 @@ public class SafTabFragment extends Fragment {
             MainActivity.handler.post(new Runnable() {
                 @Override
                 public void run() {
-                    encodeVideo();
+                    convertToAudio();
+                }
+            });
+        } else if (requestCode == REQUEST_SELECT_FILE && resultCode == MainActivity.RESULT_OK && data != null) {
+            inUri = data.getData();
+            MainActivity.handler.post(new Runnable() {
+                @Override
+                public void run() {
+                    selectOutputLocation("audio/*", "audio.wav", REQUEST_SAF_FFMPEG);
                 }
             });
         } else {

@@ -58,6 +58,7 @@ import java.util.List;
 public class MainActivity extends AppCompatActivity {
 
     public static final String TAG = "ffmpeg-kit-test";
+    public static final String TAG_DEBUG = "ffmpeg-kit-debug";
 
     public static final int REQUEST_PERMISSIONS = 1;
     public static String[] PERMISSIONS_ALL = {
